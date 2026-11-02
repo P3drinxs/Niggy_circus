@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Circus Gato - Móvil + Hitboxes alternables</title>
+<style>
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #100b19;
+  font-family: monospace;
+}
+main { text-align: center; padding: 12px; }
+canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 4px solid #8b6039;
+  image-rendering: pixelated;
+  background: #171222;
+  touch-action: none;
+}
+.controls { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin: 12px auto 0; width: min(100%, 800px); user-select: none; -webkit-user-select: none; }
+.control-group { display: flex; gap: 14px; }
+.control { min-width: 74px; height: 64px; border: 3px solid #e9b86e; border-radius: 12px; background: #24392d; color: #fff3c0; font: bold 24px monospace; touch-action: none; -webkit-tap-highlight-color: transparent; cursor: pointer; }
+.control.jump { min-width: 130px; background: #75314d; font-size: 19px; }
+.control:active, .control.pressed { background: #ad536f; transform: translateY(2px); }
+.debug-toggle { margin: 8px auto 0; padding: 7px 15px; background: #2d1f3a; border: 2px solid #b88c60; border-radius: 7px; color: #fff3c0; font: bold 12px monospace; cursor: pointer; }
+.debug-toggle[aria-pressed="true"] { background: #5c294d; }
+@media (pointer: fine) { .controls { display: none; } }
+@media (max-width: 600px) { main { padding: 4px; width: 100%; } .control { min-width: 65px; height: 60px; } .control.jump { min-width: 112px; } p { font-size: 11px; } }
+p { color: #d8c6ad; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<canvas id="juego" width="800" height="600"></canvas>
+<div class="controls" aria-label="Controles táctiles">
+  <div class="control-group">
+    <button class="control" id="btnIzq" type="button" aria-label="Mover a la izquierda">◀</button>
+    <button class="control" id="btnDer" type="button" aria-label="Mover a la derecha">▶</button>
+  </div>
+  <button class="control jump" id="btnSaltar" type="button">SALTAR</button>
+</div>
+<button class="debug-toggle" id="btnHitbox" type="button" aria-pressed="false">HITBOX: OFF</button>
+<p>FLECHAS: MOVER | Z / ESPACIO: SALTAR | H: HITBOX | R: REINICIAR | M: MÚSICA | TOCA PARA ACTIVAR AUDIO</p>
+</main>
+
+<script>
+"use strict";
+
+// ==========================================
+// 1. CONFIGURACIÓN GENERAL
+// ==========================================
+const canvas = document.getElementById("juego");
+const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
+
+const W = 800;
+const H = 600;
+const GROUND = 525;
+
+// FÍSICA DEFINITIVA
+const GRAVITY = 1800;
+const SPEED = 260;                  // Velocidad inicial (px/s)
+const AUMENTO_CADA_PUNTOS = 20;    // Nuevo nivel de dificultad cada 100 puntos
+const AUMENTO_VELOCIDAD = 50;       // +25 px/s por cada 100 puntos
+const ESPERA_DERROTA = 4.0;        // Segundos hasta reiniciar
+const JUMP = -750;
+
+// Depuración: H en teclado o botón HITBOX en móvil.
+let mostrarHitboxes = false;
+
+// ==========================================
+// 2. OBJETOS CALIBRADOS
+// ==========================================
+const OBJ = {
+  aro: {
+    scale: 1.85,
+    offsetY: 0,
+    frenteInicio: 0.52,
+    frenteFin: 0.95,
+    frenteAltura: 0.78
+  },
+  fuego: {
+    scale: 3.0,
+    offsetY: 110
+  }
+};
+
+// ==========================================
+// 3. HITBOXES DEFINITIVAS
+// ==========================================
+const HITBOX = {
+  gato: { x: 49, y: 70, w: 90, h: 96 },
+  fuego: { x: 43, y: 52, w: 20, h: 60 },
+  aro: {
+    arriba: { x: 36, y: 0, w: 70, h: 50 },
+    abajo: { x: 56, y: 150, w: 38, h: 58 }
+  }
+};
+
+const GATO_Y_SUELO = GROUND - HITBOX.gato.y - HITBOX.gato.h;
+
+// ==========================================
+// 4. ANIMACIONES
+// ==========================================
+const ANIM_FUEGO = [0,1,0,1,0,1,0,1];
+const FPS_FUEGO = 12;
+
+const ANIM_GATO = [0,1,2,1];
+const FPS_GATO = 8;
+
+const FPS_ARO = 7;
+
+// Público: base fija + overlays para mover principalmente a las personas
+const ANIM_PUBLICO = [0,1,2,1];
+const FPS_PUBLICO = 2.4;
+
+// ==========================================
+// 5. ESCENARIO / POSICIONES
+// ==========================================
+const ESCENA = {
+  cielo: "#211629",
+  pared1: "#2d1834",
+  pared2: "#4a2951",
+  pared3: "#1b1322",
+  dorado: "#e1b45b",
+  doradoOsc: "#a5753a"
+};
+
+const PUBLICO_FRAME_W = 800;
+const PUBLICO_FRAME_H = 184;
+
+const PUBLICO_SUP_SCALE = 1.02;
+const PUBLICO_SUP_W = Math.round(PUBLICO_FRAME_W * PUBLICO_SUP_SCALE);
+const PUBLICO_SUP_H = Math.round(PUBLICO_FRAME_H * PUBLICO_SUP_SCALE);
+const PUBLICO_SUP_X = Math.round((W - PUBLICO_SUP_W) / 2);
+const PUBLICO_SUP_Y = 92;
+
+const PUBLICO_INF_SCALE = 1.20;
+const PUBLICO_INF_W = Math.round(PUBLICO_FRAME_W * PUBLICO_INF_SCALE);
+const PUBLICO_INF_H = Math.round(PUBLICO_FRAME_H * PUBLICO_INF_SCALE);
+const PUBLICO_INF_X = Math.round((W - PUBLICO_INF_W) / 2);
+const PUBLICO_INF_Y = 292;
+
+const CENEFA_Y = 76;
+const CENEFA_H = 160;
+
+const SEPARADOR_Y = 231;
+const SEPARADOR_H = 108;
+
+const PISO_Y = GROUND; // Restituye el piso original a Y=525
+const PISO_H = H - PISO_Y;
+
+// ==========================================
+// 6. FUENTE PIXEL ART
+// ==========================================
+const FONT = {
+"A":["01110","10001","10001","11111","10001","10001","10001"],
+"B":["11110","10001","10001","11110","10001","10001","11110"],
+"C":["01111","10000","10000","10000","10000","10000","01111"],
+"D":["11110","10001","10001","10001","10001","10001","11110"],
+"E":["11111","10000","10000","11110","10000","10000","11111"],
+"F":["11111","10000","10000","11110","10000","10000","10000"],
+"G":["01111","10000","10000","10111","10001","10001","01111"],
+"H":["10001","10001","10001","11111","10001","10001","10001"],
+"I":["11111","00100","00100","00100","00100","00100","11111"],
+"J":["00111","00010","00010","00010","10010","10010","01100"],
+"K":["10001","10010","10100","11000","10100","10010","10001"],
+"L":["10000","10000","10000","10000","10000","10000","11111"],
+"M":["10001","11011","10101","10101","10001","10001","10001"],
+"N":["10001","11001","10101","10011","10001","10001","10001"],
+"O":["01110","10001","10001","10001","10001","10001","01110"],
+"P":["11110","10001","10001","11110","10000","10000","10000"],
+"Q":["01110","10001","10001","10001","10101","10010","01101"],
+"R":["11110","10001","10001","11110","10100","10010","10001"],
+"S":["01111","10000","10000","01110","00001","00001","11110"],
+"T":["11111","00100","00100","00100","00100","00100","00100"],
+"U":["10001","10001","10001","10001","10001","10001","01110"],
+"V":["10001","10001","10001","10001","10001","01010","00100"],
+"W":["10001","10001","10001","10101","10101","10101","01010"],
+"X":["10001","10001","01010","00100","01010","10001","10001"],
+"Y":["10001","10001","01010","00100","00100","00100","00100"],
+"Z":["11111","00001","00010","00100","01000","10000","11111"],
+"0":["01110","10001","10011","10101","11001","10001","01110"],
+"1":["00100","01100","00100","00100","00100","00100","01110"],
+"2":["01110","10001","00001","00010","00100","01000","11111"],
+"3":["11110","00001","00001","01110","00001","00001","11110"],
+"4":["00010","00110","01010","10010","11111","00010","00010"],
+"5":["11111","10000","10000","11110","00001","00001","11110"],
+"6":["01110","10000","10000","11110","10001","10001","01110"],
+"7":["11111","00001","00010","00100","01000","01000","01000"],
+"8":["01110","10001","10001","01110","10001","10001","01110"],
+"9":["01110","10001","10001","01111","00001","00001","01110"],
+":":["00000","00100","00100","00000","00100","00100","00000"],
+"-":["00000","00000","00000","11111","00000","00000","00000"],
+"!":["00100","00100","00100","00100","00100","00000","00100"],
+"/":["00001","00001","00010","00100","01000","10000","10000"],
+" ":["00000","00000","00000","00000","00000","00000","00000"]
+};
+
+function pixelText(text, x, y, size = 3, color = "#ffffff", align = "left") {
+  text = String(text).toUpperCase();
+  const step = size * 6;
+  const width = text.length * step - size;
+  if (align === "center") x -= width / 2;
+  if (align === "right") x -= width;
+  x = Math.round(x);
+  y = Math.round(y);
+  ctx.fillStyle = color;
+  for (let c = 0; c < text.length; c++) {
+    const glyph = FONT[text[c]] || FONT[" "];
+    for (let row = 0; row < 7; row++) {
+      for (let col = 0; col < 5; col++) {
+        if (glyph[row][col] === "1") {
+          ctx.fillRect(x + c * step + col * size, y + row * size, size, size);
+        }
+      }
+    }
+  }
+}
+
+// ==========================================
+// 7. CARGA DE ASSETS
+// ==========================================
+const paths = {};
+for (let i = 0; i < 3; i++) {
+  paths["gato" + i] = "assets/gato_" + i + ".png";
+  paths["aro" + i] = "assets/aro_fuego_" + i + ".png";
+}
+for (let i = 0; i < 5; i++) {
+  paths["fuego" + i] = "assets/fuego_" + i + ".png";
+}
+paths.cenefa = "assets/cenefa_superior.png";
+paths.publicoBase = "assets/publico_base.png";
+paths.publicoDelta1 = "assets/publico_delta1.png";
+paths.publicoDelta2 = "assets/publico_delta2.png";
+paths.separador = "assets/separador_gradas.png";
+paths.piso = "assets/piso_scroll.png";
+
+const images = {};
+const keys = new Set();
+const tactil = { izquierda: false, derecha: false };
+
+let game;
+let ready = false;
+let loadError = "";
+let last = 0;
+let highScore = 0;
+
+// ==========================================
+// MÚSICA V12.5: Niggy - Cuerdas del Caos
+// Los navegadores requieren una interacción antes de reproducir audio.
+// ==========================================
+// Efecto explosión (independiente del volumen de la música)
+const explosionAudio = new Audio("assets/explosion_arcade.wav");
+explosionAudio.preload = "auto";
+explosionAudio.volume = 0.72;
+
+function sonarExplosion() {
+  if (!audioDesbloqueado) return;
+  explosionAudio.pause();
+  explosionAudio.currentTime = 0;
+  explosionAudio.play().catch(() => {});
+}
+
+const musica = new Audio("assets/circus_gato_cuerdas_v3.mp3");
+musica.loop = true;
+musica.preload = "auto";
+musica.volume = 0.38;
+let musicaActivada = true;
+let audioDesbloqueado = false;
+
+function sincronizarMusica() {
+  if (!audioDesbloqueado || !musicaActivada || !ready || game.state !== "playing") {
+    musica.pause();
+    return;
+  }
+  if (musica.paused) {
+    musica.play().catch(() => {
+      // Si se bloquea el audio, se reintentará con otra interacción.
+    });
+  }
+}
+
+function desbloquearAudio() {
+  audioDesbloqueado = true;
+  sincronizarMusica();
+}
+
+canvas.addEventListener("pointerdown", desbloquearAudio);
+
+
+function random(a, b) {
+  return a + Math.random() * (b - a);
+}
+
+function loadImage(name, path) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => { images[name] = img; resolve(); };
+    img.onerror = () => reject(new Error("No encontrado: " + path));
+    img.src = path;
+  });
+}
+
+Promise.all(Object.entries(paths).map(([name, path]) => loadImage(name, path)))
+.then(() => { ready = true; reset(); })
+.catch(err => { loadError = err.message; });
+
+// ==========================================
+// 8. REINICIAR
+// ==========================================
+function reset() {
+  game = {
+    state: "playing",
+    score: 0,
+    velocidad: SPEED,
+    distanciaPiso: 0,
+    time: 0,
+    spawnIn: 1.5,
+    obstacles: [],
+    messageTime: 0,
+    explosion: null,
+    player: { x: 145, y: GATO_Y_SUELO, vy: 0, onGround: true }
+  };
+  sincronizarMusica();
+}
+
+// ==========================================
+// 9. CONTROLES
+// ==========================================
+window.addEventListener("keydown", e => {
+  const k = e.key.toLowerCase();
+  if (["arrowleft","arrowright","arrowup"," ","z","r","m","h"].includes(k)) e.preventDefault();
+  if (k === "h" && !e.repeat) { mostrarHitboxes = !mostrarHitboxes; actualizarBotonHitbox(); }
+  if (k === "m" && !e.repeat) {
+    musicaActivada = !musicaActivada;
+    audioDesbloqueado = true;
+    sincronizarMusica();
+  }
+  if (["arrowleft", "arrowright", "arrowup", "z", " ", "r"].includes(k) && !e.repeat) {
+    desbloquearAudio();
+  }
+  if (k === "r" && ready && !e.repeat) { reset(); return; }
+  if (!keys.has(k) && ["z"," ","arrowup"].includes(k) && ready && game.state === "playing" && game.player.onGround) {
+    game.player.vy = JUMP;
+    game.player.onGround = false;
+  }
+  keys.add(k);
+});
+window.addEventListener("keyup", e => keys.delete(e.key.toLowerCase()));
+window.addEventListener("blur", () => { keys.clear(); tactil.izquierda = false; tactil.derecha = false; });
+
+// Controles táctiles: sostener flechas y tocar SALTAR.
+// Pointer Events permiten usar dedo, lápiz o ratón.
+function conectarDireccion(id, sentido) {
+  const boton = document.getElementById(id);
+  const activar = (e) => {
+    e.preventDefault();
+    tactil[sentido] = true;
+    boton.classList.add("pressed");
+    desbloquearAudio();
+    if (boton.setPointerCapture) boton.setPointerCapture(e.pointerId);
+  };
+  const soltar = (e) => {
+    e.preventDefault();
+    tactil[sentido] = false;
+    boton.classList.remove("pressed");
+  };
+  boton.addEventListener("pointerdown", activar);
+  boton.addEventListener("pointerup", soltar);
+  boton.addEventListener("pointercancel", soltar);
+  boton.addEventListener("lostpointercapture", () => {
+    tactil[sentido] = false;
+    boton.classList.remove("pressed");
+  });
+}
+conectarDireccion("btnIzq", "izquierda");
+conectarDireccion("btnDer", "derecha");
+
+document.getElementById("btnSaltar").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  desbloquearAudio();
+  if (ready && game.state === "playing" && game.player.onGround) {
+    game.player.vy = JUMP;
+    game.player.onGround = false;
+  }
+});
+
+// Botón para depurar también desde el teléfono.
+const btnHitbox = document.getElementById("btnHitbox");
+function actualizarBotonHitbox() {
+  btnHitbox.textContent = mostrarHitboxes ? "HITBOX: ON" : "HITBOX: OFF";
+  btnHitbox.setAttribute("aria-pressed", String(mostrarHitboxes));
+}
+btnHitbox.addEventListener("click", () => {
+  mostrarHitboxes = !mostrarHitboxes;
+  actualizarBotonHitbox();
+});
+
+// ==========================================
+// 10. OBSTÁCULOS Y COLISIONES
+// ==========================================
+function spawn() {
+  game.obstacles.push({
+    kind: Math.random() < 0.5 ? "fuego" : "aro",
+    x: 850,
+    passed: false,
+    animTime: 0
+  });
+}
+
+function obstacleScale(o) { return OBJ[o.kind].scale; }
+
+function obstaclePosition(o) {
+  const img = o.kind === "aro" ? images.aro0 : images.fuego0;
+  const scale = obstacleScale(o);
+  return { x: o.x, y: GROUND - img.height * scale + OBJ[o.kind].offsetY };
+}
+
+function boundsPlayer() {
+  const p = game.player, b = HITBOX.gato;
+  return { x: p.x + b.x, y: p.y + b.y, w: b.w, h: b.h };
+}
+
+function escalarHitbox(pos, b, scale) {
+  return { x: pos.x + b.x * scale, y: pos.y + b.y * scale, w: b.w * scale, h: b.h * scale };
+}
+
+function boundsObstacle(o) {
+  const pos = obstaclePosition(o), s = obstacleScale(o);
+  if (o.kind === "aro") {
+    return [escalarHitbox(pos, HITBOX.aro.arriba, s), escalarHitbox(pos, HITBOX.aro.abajo, s)];
+  }
+  const caja = escalarHitbox(pos, HITBOX.fuego, s);
+  caja.h = Math.max(0, Math.min(caja.h, GROUND - caja.y));
+  return [caja];
+}
+
+function intersects(a, b) {
+  if (a.w <= 0 || a.h <= 0 || b.w <= 0 || b.h <= 0) return false;
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function colisionObstaculo(o) {
+  return boundsObstacle(o).some(caja => intersects(boundsPlayer(), caja));
+}
+
+// ==========================================
+// 11. ACTUALIZAR JUEGO
+// ==========================================
+function update(dt) {
+  if (!ready) return;
+  if (game.state === "dead") {
+    musica.pause();
+    actualizarExplosion(dt);
+    game.messageTime -= dt;
+    if (game.messageTime <= 0) reset();
+    return;
+  }
+
+  const p = game.player;
+  p.x += (((keys.has("arrowright") || tactil.derecha) ? 200 : 0) - ((keys.has("arrowleft") || tactil.izquierda) ? 160 : 0)) * dt;
+  p.x = Math.max(-14, Math.min(W - 180, p.x));
+
+  p.vy += GRAVITY * dt;
+  p.y += p.vy * dt;
+  if (p.y >= GATO_Y_SUELO) {
+    p.y = GATO_Y_SUELO;
+    p.vy = 0;
+    p.onGround = true;
+  }
+
+  game.time += dt;
+  // El piso avanza exactamente la misma distancia que los obstáculos.
+  game.distanciaPiso += game.velocidad * dt;
+  game.spawnIn -= dt;
+  if (game.spawnIn <= 0) {
+  spawn();
+
+  const nivel = Math.floor(game.score / 100);
+
+  const REDUCCION_POR_NIVEL = 0.15;
+  const INTERVALO_MINIMO = 0.85;
+
+  const tiempoMin = Math.max(
+    INTERVALO_MINIMO,
+    1.65 - nivel * REDUCCION_POR_NIVEL
+  );
+
+  const tiempoMax = Math.max(
+    INTERVALO_MINIMO + 0.25,
+    2.3 - nivel * REDUCCION_POR_NIVEL
+  );
+
+  game.spawnIn = random(tiempoMin, tiempoMax);
+}
+
+  for (let i = game.obstacles.length - 1; i >= 0; i--) {
+    const o = game.obstacles[i];
+    o.x -= game.velocidad * dt;
+    o.animTime += dt;
+
+    if (colisionObstaculo(o)) {
+      game.state = "dead";
+      musica.pause();
+      game.messageTime = ESPERA_DERROTA;
+      iniciarExplosion();
+      sonarExplosion();
+      break;
+    }
+
+    const img = o.kind === "aro" ? images.aro0 : images.fuego0;
+    const ancho = img.width * obstacleScale(o);
+
+    if (!o.passed && o.x + ancho < p.x) {
+      o.passed = true;
+      game.score += 10;
+      highScore = Math.max(highScore, game.score);
+      // Modo infinito: cada 100 puntos aumenta la dificultad.
+      if (game.score % AUMENTO_CADA_PUNTOS === 0) {
+        game.velocidad = SPEED +
+          Math.floor(game.score / AUMENTO_CADA_PUNTOS) * AUMENTO_VELOCIDAD;
+      }
+    }
+
+    if (o.x + ancho < -20) {
+      game.obstacles.splice(i, 1);
+    }
+  }
+}
+
+// ==========================================
+// 12. FONDO Y ESCENARIO
+// ==========================================
+function dibujarFondoBase() {
+  ctx.fillStyle = ESCENA.cielo;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = ESCENA.pared1;
+  ctx.fillRect(0, 76, W, 449);
+
+  ctx.fillStyle = ESCENA.pared2;
+  ctx.fillRect(0, 82, W, 8);
+  ctx.fillRect(0, 516, W, 9);
+
+  ctx.fillStyle = ESCENA.pared3;
+  ctx.fillRect(0, 90, W, 4);
+  ctx.fillRect(0, 512, W, 4);
+}
+
+function obtenerFramePublico(phase = 0) {
+  return ANIM_PUBLICO[(Math.floor((game?.time || 0) * FPS_PUBLICO) + phase) % ANIM_PUBLICO.length];
+}
+
+function imagenOverlayPublico(frame) {
+  if (frame === 1) return images.publicoDelta1;
+  if (frame === 2) return images.publicoDelta2;
+  return null;
+}
+
+function dibujarPublico(x, y, w, h, phase = 0, sombra = 0) {
+  if (!ready || !images.publicoBase) return;
+
+  ctx.drawImage(images.publicoBase, x, y, w, h);
+
+  const frame = obtenerFramePublico(phase);
+  const overlay = imagenOverlayPublico(frame);
+  if (overlay) {
+    ctx.drawImage(overlay, x, y, w, h);
+  }
+
+  if (sombra > 0) {
+    ctx.fillStyle = `rgba(23,18,34,${sombra})`;
+    ctx.fillRect(x, y, w, h);
+  }
+}
+
+function dibujarCenefa() {
+  if (!ready || !images.cenefa) return;
+  ctx.drawImage(images.cenefa, 0, CENEFA_Y, W, CENEFA_H);
+}
+
+function dibujarSeparadorGradas() {
+  if (!ready || !images.separador) return;
+  ctx.drawImage(images.separador, 0, SEPARADOR_Y, W, SEPARADOR_H);
+}
+
+// El tile de 1600×75 combina el piso original y su espejo.
+// Así el extremo derecho coincide con el izquierdo y se repite sin corte.
+
+function dibujarPisoNuevo() {
+  if (!ready || !images.piso) return;
+
+  const img = images.piso;
+  const ancho = img.width;
+  const desplazamiento = ((game.distanciaPiso % ancho) + ancho) % ancho;
+
+  // No se cambia la altura del piso ni las colisiones.
+  // Redondear la posición evita vibraciones de subpíxel en pixel art.
+  for (let x = -desplazamiento; x < W; x += ancho) {
+    ctx.drawImage(img, Math.round(x), PISO_Y, ancho, PISO_H);
+  }
+}
+
+// ==========================================
+// 13. SPRITES DEL JUEGO
+// ==========================================
+function imagenObstaculo(o) {
+  if (o.kind === "aro") {
+    const frame = Math.floor(game.time * FPS_ARO) % 3;
+    return images["aro" + frame];
+  }
+  const index = Math.floor(o.animTime * FPS_FUEGO) % ANIM_FUEGO.length;
+  return images["fuego" + ANIM_FUEGO[index]];
+}
+
+function dibujarObstaculos(tipo) {
+  for (const o of game.obstacles) {
+    if (o.kind !== tipo) continue;
+    const pos = obstaclePosition(o);
+    const scale = obstacleScale(o);
+    const img = imagenObstaculo(o);
+    ctx.drawImage(img, Math.round(pos.x), Math.round(pos.y), Math.round(img.width * scale), Math.round(img.height * scale));
+  }
+}
+
+function dibujarGato() {
+  const index = Math.floor(game.time * FPS_GATO) % ANIM_GATO.length;
+  const frame = ANIM_GATO[index];
+  ctx.drawImage(images["gato" + frame], Math.round(game.player.x), Math.round(game.player.y));
+}
+
+function dibujarFrenteAros() {
+  for (const o of game.obstacles) {
+    if (o.kind !== "aro") continue;
+    const pos = obstaclePosition(o);
+    const scale = obstacleScale(o);
+    const img = imagenObstaculo(o);
+    const ancho = img.width * scale;
+    const alto = img.height * scale;
+    const zonaAro = { x: pos.x, y: pos.y, w: ancho, h: alto };
+    if (!intersects(boundsPlayer(), zonaAro)) continue;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(pos.x + ancho * OBJ.aro.frenteInicio, pos.y, ancho * (OBJ.aro.frenteFin - OBJ.aro.frenteInicio), alto * OBJ.aro.frenteAltura);
+    ctx.clip();
+    ctx.drawImage(img, Math.round(pos.x), Math.round(pos.y), Math.round(ancho), Math.round(alto));
+    ctx.restore();
+  }
+}
+
+// ==========================================
+// 14. HITBOXES
+// ==========================================
+function dibujarHitbox(rect, color, nombre) {
+  if (!mostrarHitboxes || rect.h <= 0) return;
+  ctx.save();
+  ctx.fillStyle = color === "#00e5ff" ? "rgba(0,229,255,0.16)" : "rgba(255,60,60,0.16)";
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+  ctx.font = "bold 11px monospace";
+  ctx.textAlign = "left";
+  ctx.fillStyle = color;
+  ctx.fillText(nombre, rect.x, Math.max(12, rect.y - 5));
+  ctx.restore();
+}
+
+function dibujarTodasLasHitboxes() {
+  if (!mostrarHitboxes) return;
+  for (const o of game.obstacles) {
+    boundsObstacle(o).forEach((caja, i) => {
+      const nombre = o.kind === "aro" ? (i === 0 ? "ARO ARRIBA" : "ARO ABAJO") : "FUEGO";
+      dibujarHitbox(caja, "#ff3c3c", nombre);
+    });
+  }
+  dibujarHitbox(boundsPlayer(), "#00e5ff", "GATO");
+}
+
+// ==========================================
+// 15. MARCADOR Y MENSAJES
+// ==========================================
+function dibujarMarcador() {
+  ctx.fillStyle = "#090d19";
+  ctx.fillRect(0, 0, W, 76);
+
+  ctx.fillStyle = "#c18a45";
+  ctx.fillRect(0, 72, W, 4);
+
+  ctx.fillStyle = "#e6b963";
+  ctx.fillRect(8, 8, 5, 5);
+  ctx.fillRect(W - 13, 8, 5, 5);
+  ctx.fillRect(8, 62, 5, 5);
+  ctx.fillRect(W - 13, 62, 5, 5);
+
+  pixelText("1UP", 35, 10, 3, "#ffcb62");
+  pixelText("HI-SCORE", 400, 10, 3, "#ffcb62", "center");
+  const tramo = Math.floor((game?.score || 0) / AUMENTO_CADA_PUNTOS) + 1;
+  pixelText("STAGE " + String(tramo).padStart(2, "0"), 765, 10, 2, "#ffcb62", "right");
+
+  const score = String(game?.score || 0).padStart(6, "0");
+  const record = String(highScore).padStart(6, "0");
+
+  pixelText(score, 35, 34, 4, "#ffffff");
+  pixelText(record, 400, 34, 4, "#ffffff", "center");
+  pixelText("NIGGY", 765, 38, 3, "#82ff82", "right");
+  pixelText(musicaActivada ? "M ON" : "M OFF", 765, 61, 1, musicaActivada ? "#82ff82" : "#ff8181", "right");
+}
+
+function mensajeCentral(titulo, subtitulo, color) {
+  ctx.fillStyle = "rgba(8,8,20,0.85)";
+  ctx.fillRect(70, 205, 660, 155);
+  ctx.strokeStyle = "#e6b963";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(74, 209, 652, 147);
+  pixelText(titulo, 400, 243, 3, color, "center");
+  pixelText(subtitulo, 400, 303, 2, "#ffffff", "center");
+}
+
+// ==========================================
+// EXPLOSIÓN ARCADE (sin sprites adicionales)
+// ==========================================
+function iniciarExplosion() {
+  const caja = boundsPlayer();
+  const cx = caja.x + caja.w / 2;
+  const cy = caja.y + caja.h / 2;
+  const colores = ["#fff6a8", "#ffcf55", "#ff883f", "#ff496e", "#f5a5dc", "#ffecef"];
+  const particles = [];
+  for (let i = 0; i < 65; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 95 + Math.random() * 260;
+    particles.push({
+      x: cx, y: cy,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      size: 3 + Math.floor(Math.random() * 7),
+      life: 0.55 + Math.random() * 0.50,
+      maxLife: 1,
+      color: colores[Math.floor(Math.random() * colores.length)]
+    });
+  }
+  game.explosion = {cx, cy, age: 0, particles};
+}
+
+function actualizarExplosion(dt) {
+  const ex = game.explosion;
+  if (!ex) return;
+  ex.age += dt;
+  for (const p of ex.particles) {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy += 430 * dt;
+    p.life -= dt;
+  }
+}
+
+function dibujarExplosion() {
+  const ex = game.explosion;
+  if (!ex) return;
+  ctx.save();
+  if (ex.age < 0.25) {
+    const radio = (ex.age / 0.25) * 72;
+    ctx.strokeStyle = "#fff2a1";
+    ctx.lineWidth = Math.max(2, 10 * (1 - ex.age / 0.25));
+    ctx.beginPath();
+    ctx.arc(ex.cx, ex.cy, radio, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  for (const p of ex.particles) {
+    if (p.life <= 0) continue;
+    ctx.globalAlpha = Math.min(1, p.life * 1.6);
+    ctx.fillStyle = p.color;
+    const sz = Math.max(2, Math.round(p.size * Math.min(1, p.life * 1.5)));
+    ctx.fillRect(Math.round(p.x), Math.round(p.y), sz, sz);
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// ==========================================
+// 16. DIBUJAR ESCENA
+// ==========================================
+function draw() {
+  dibujarFondoBase();
+
+  if (ready) {
+    // gradería superior
+    dibujarPublico(PUBLICO_SUP_X, PUBLICO_SUP_Y, PUBLICO_SUP_W, PUBLICO_SUP_H, 1, 0.18);
+    // cenefa arriba
+    dibujarCenefa();
+    // Gradería inferior dibujada ANTES del palco:
+    // el separador se ve como estructura en primer plano.
+    dibujarPublico(PUBLICO_INF_X, PUBLICO_INF_Y, PUBLICO_INF_W, PUBLICO_INF_H, 0, 0);
+    dibujarSeparadorGradas();
+
+    // Fuego detrás del piso; aro delante; Niggy en primer plano.
+    dibujarObstaculos("fuego");
+    dibujarPisoNuevo();
+    dibujarObstaculos("aro");
+    if (game.state !== "dead") dibujarGato();
+    dibujarFrenteAros();
+    dibujarExplosion();
+    dibujarTodasLasHitboxes();
+  }
+
+  dibujarMarcador();
+
+  if (!ready) {
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 16px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(loadError || "Cargando assets...", W/2, 280);
+    return;
+  }
+
+  if (game.state === "dead") {
+    mensajeCentral("QUEMADO QLIAO!", "REINICIO EN " + Math.max(1, Math.ceil(game.messageTime)), "#ff6464");
+  }
+
+}
+
+// ==========================================
+// 17. BUCLE PRINCIPAL
+// ==========================================
+function loop(timestamp) {
+  if (!last) last = timestamp;
+  const dt = Math.min((timestamp - last) / 1000, 0.033);
+  last = timestamp;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

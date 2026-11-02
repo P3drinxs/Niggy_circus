@@ -1,0 +1,8 @@
+Circus Gato V12.7 - Modo infinito
+
+Cada 100 puntos: +25 px/s. Velocidad inicial 260 px/s.
+El piso y los obstáculos comparten desplazamiento.
+Al morir: explosión y 4 segundos de espera; se reinicia la partida.
+Se conservan sprites, música, escenario y hitboxes de V12.6.
+
+Abrir index.html directamente en Chrome.

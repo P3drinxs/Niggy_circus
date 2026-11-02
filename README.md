@@ -2,7 +2,7 @@ Circus Niggy
 
 Videojuego arcade de plataformas desarrollado con HTML5, CSS3 y JavaScript.
 
-Circus Gato es un videojuego de supervivencia infinita (endless runner) protagonizado por Niggy, una gata que debe superar obstáculos en un escenario circense.
+Circus Niggy es un videojuego de supervivencia infinita (endless runner) protagonizado por Niggy, una gata que debe superar obstáculos en un escenario circense.
 
 Inspirado en clásicos como Circus Charlie y en la mecánica de supervivencia del dinosaurio de Google Chrome, el juego combina gráficos pixel art, animaciones, música y dificultad progresiva.
 
@@ -80,9 +80,9 @@ Frecuencia de obstáculos:
 
 Intervalo inicial aleatorio entre 1,65 y 2,30 segundos.
 
-Cada 100 puntos se reduce progresivamente el tiempo entre apariciones.
+Cada 100 puntos se reduce el intervalo en 0,15 segundos.
 
-Se establece un intervalo mínimo para evitar una frecuencia excesiva.
+El intervalo mínimo se encuentra limitado para evitar una frecuencia excesiva.
 
 Al colisionar con un obstáculo, se activa una explosión visual y sonora. La partida se reinicia automáticamente después de cuatro segundos.
 
@@ -120,17 +120,17 @@ El proyecto utiliza JavaScript nativo y no depende de motores de videojuegos ni 
 
 Instalación
 
-Clonar el repositorio:
+Clona el repositorio:
 
 git clone https://github.com/TU-USUARIO/TU-REPOSITORIO.git
 
-Abrir la carpeta descargada y ejecutar el archivo index.html desde un navegador compatible.
+Abre la carpeta descargada y ejecuta index.html en un navegador compatible.
 
-También es posible publicar el proyecto mediante GitHub Pages o Netlify para jugar directamente desde internet.
+También puedes publicar el proyecto mediante GitHub Pages o Netlify para jugar directamente desde internet.
 
 Estructura del proyecto
 
-circus-gato/
+circus-niggy/
 ├── index.html
 ├── assets/
 │   ├── gato_0.png
@@ -140,7 +140,10 @@ circus-gato/
 │   ├── aro_fuego_1.png
 │   ├── aro_fuego_2.png
 │   ├── fuego_0.png
-│   ├── ...
+│   ├── fuego_1.png
+│   ├── fuego_2.png
+│   ├── fuego_3.png
+│   ├── fuego_4.png
 │   ├── publico_base.png
 │   ├── publico_delta1.png
 │   ├── publico_delta2.png
@@ -195,10 +198,10 @@ Compatibilidad ampliada con controles externos
 
 Sobre el proyecto
 
-Circus Gato es un proyecto personal de desarrollo de videojuegos inspirado en la estética y las mecánicas de los arcades clásicos.
+Circus Niggy es un proyecto personal de desarrollo de videojuegos inspirado en la estética y las mecánicas de los arcades clásicos.
 
 El proyecto tiene como protagonista a Niggy y busca combinar una jugabilidad sencilla con dificultad progresiva, gráficos pixel art y una identidad visual propia.
 
 Su desarrollo se realiza de manera iterativa, incorporando mejoras en la física, las colisiones, las animaciones, el sonido y la experiencia de usuario.
 
-Circus Gato — Proyecto independiente en desarrollo.
+Circus Niggy — Proyecto independiente en desarrollo.
